@@ -23,14 +23,22 @@ const Purchase = dynamic(
   },
 )
 
-const Stocks = dynamic(() => import('./stocks').then((mod) => mod.Stocks), {
+const Stocks = dynamic(() => import('./recipes').then((mod) => mod.Recipes), {
   ssr: false,
   loading: () => <StocksSkeleton />,
 })
+
+const FullRecipes = dynamic(
+  () => import('./full-recipes').then((mod) => mod.FullRecipes),
+  {
+    ssr: false,
+    loading: () => <StocksSkeleton />,
+  },
+)
 
 const Events = dynamic(() => import('./events').then((mod) => mod.Events), {
   ssr: false,
   loading: () => <EventsSkeleton />,
 })
 
-export { Stock, Purchase, Stocks, Events }
+export { Stock, FullRecipes, Purchase, Stocks, Events }

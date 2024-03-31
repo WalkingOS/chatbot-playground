@@ -14,15 +14,15 @@ import {
   BotCard,
   BotMessage,
   SystemMessage,
-  Stock,
-  Purchase
 } from '@/components/stocks'
 
 import { z } from 'zod'
 import { EventsSkeleton } from '@/components/stocks/events-skeleton'
 import { Events } from '@/components/stocks/events'
 import { StocksSkeleton } from '@/components/stocks/stocks-skeleton'
-import { Stocks } from '@/components/stocks/stocks'
+import { Recipes } from '@/components/stocks/recipes'
+import { FullRecipes } from '@/components/stocks/full-recipes'
+
 import { StockSkeleton } from '@/components/stocks/stock-skeleton'
 import {
   formatNumber,
@@ -30,11 +30,14 @@ import {
   sleep,
   nanoid
 } from '@/lib/utils'
-import { SpinnerMessage, UserMessage } from '@/components/stocks/message'
+import { SpinnerMessage } from '@/components/stocks/message'
 
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY || ''
+  apiKey: process.env.OPENAI_API_KEY
 })
+
+// Set the runtime to edge
+export const runtime = 'edge';
 
 async function confirmPurchase(symbol: string, price: number, amount: number) {
   'use server'
@@ -122,6 +125,7 @@ async function submitUserMessage(content: string) {
 
   const aiState = getMutableAIState<typeof AI>()
 
+  // Update the AI state with the new user message.
   aiState.update({
     ...aiState.get(),
     messages: [
@@ -137,7 +141,8 @@ async function submitUserMessage(content: string) {
   let textStream: undefined | ReturnType<typeof createStreamableValue<string>>
   let textNode: undefined | React.ReactNode
 
-  const ui = render({
+  // The `render()` creates a generated, streamable UI.
+  const streamableUi = render({
     model: 'gpt-3.5-turbo',
     provider: openai,
     initial: <SpinnerMessage />,
@@ -145,20 +150,17 @@ async function submitUserMessage(content: string) {
       {
         role: 'system',
         content: `\
-You are a stock trading conversation bot and you can help users buy stocks, step by step.
-You and the user can discuss stock prices and the user can adjust the amount of stocks they want to buy, or place an order, in the UI.
+          You are a nutritionist expert conversation bot and you can help users get receipes, step by step.
+          You and the user can discuss about food and the user can adjust the amount of ingredients they want to use, or place an request, in the UI.
 
-Messages inside [] means that it's a UI element or a user event. For example:
-- "[Price of AAPL = 100]" means that an interface of the stock price of AAPL is shown to the user.
-- "[User has changed the amount of AAPL to 10]" means that the user has changed the amount of AAPL to 10 in the UI.
+          Messages inside [] means that it's a UI element or a user event. For example:
+          - "[Price of AAPL = 100]" means that an interface of the stock price of AAPL is shown to the user.
+          - "[User has changed the amount of AAPL to 10]" means that the user has changed the amount of AAPL to 10 in the UI.
 
-If the user requests purchasing a stock, call \`show_stock_purchase_ui\` to show the purchase UI.
-If the user just wants the price, call \`show_stock_price\` to show the price.
-If you want to show trending stocks, call \`list_stocks\`.
-If you want to show events, call \`get_events\`.
-If the user wants to sell stock, or complete another impossible task, respond that you are a demo and cannot do that.
+          If you want to show some list of recipes, call \`list_recipes\`.
+          If you want to show the detail of some recipes, call \`full_recipes\`.
 
-Besides that, you can also chat with users and do some calculations if needed.`
+        `
       },
       ...aiState.get().messages.map((message: any) => ({
         role: message.role,
@@ -166,12 +168,26 @@ Besides that, you can also chat with users and do some calculations if needed.`
         name: message.name
       }))
     ],
+
+  /* 
+    If the user requests purchasing a stock, call \`show_stock_purchase_ui\` to show the purchase UI.
+    If the user just wants the price, call \`show_stock_price\` to show the price.
+    If you want to show trending stocks, call \`list_stocks\`.
+    If you want to show events, call \`get_events\`. 
+    If the user wants complete an impossible task besides these prompts, respond that you are a demo and cannot do that.
+    */
+
+
+    // `text` is called when an AI returns a text response (as opposed to a tool call).
+    // Its content is streamed from the LLM, so this function will be called
+    // multiple times with `content` being incremental.
     text: ({ content, done, delta }) => {
       if (!textStream) {
         textStream = createStreamableValue('')
         textNode = <BotMessage content={textStream.value} />
       }
 
+      // When it's the final content, mark the state as done and ready for the client to access.
       if (done) {
         textStream.done()
         aiState.done({
@@ -186,26 +202,27 @@ Besides that, you can also chat with users and do some calculations if needed.`
           ]
         })
       } else {
+        // update the textStream with the conent from the last text call
         textStream.update(delta)
       }
 
       return textNode
     },
 
-    
+    // the functions the ai should call in certain situation (prompted)
     functions: {
-      listStocks: {
-        description: 'List three imaginary stocks that are trending.',
+      listRecipes: {
+        description: 'List three recipes with matching requirements.',
         parameters: z.object({
-          stocks: z.array(
+          recipes: z.array(
             z.object({
-              symbol: z.string().describe('The symbol of the stock'),
-              price: z.number().describe('The price of the stock'),
-              delta: z.number().describe('The change in price of the stock')
+              headline: z.string().describe('The headline of the recipe'),
+              description: z.string().describe('The description of the recipe'),
             })
           )
         }),
-        render: async function* ({ stocks }) {
+        render: async function* ({ recipes }) {
+          // Show a skeleton on the client while we wait for the response.
           yield (
             <BotCard>
               <StocksSkeleton />
@@ -214,6 +231,7 @@ Besides that, you can also chat with users and do some calculations if needed.`
 
           await sleep(1000)
 
+          // Update the final AIState.
           aiState.done({
             ...aiState.get(),
             messages: [
@@ -222,19 +240,62 @@ Besides that, you can also chat with users and do some calculations if needed.`
                 id: nanoid(),
                 role: 'function',
                 name: 'listStocks',
-                content: JSON.stringify(stocks)
+                content: JSON.stringify(recipes)
               }
             ]
           })
 
+          // return the actual component for the UIState
           return (
             <BotCard>
-              <Stocks stocks={stocks} />
+              <Recipes recipes={recipes} />
             </BotCard>
           )
         }
       },
-      showStockPrice: {
+
+      fullRecipes: {
+        description: 'give the full detail of a recipes with matching requirements.',
+        parameters: z.object({
+          fullRecipes: z.object({
+              ingredientList: z.string().array().describe('List of all needed ingredients'),
+              utensilList: z.string().array().describe('List of all needed cooking utensils'),
+              preperationList: z.string().array().describe('List of all steps needed for cooking the given meal'),
+            })
+        }),
+        render: async function* ({ fullRecipes }) {
+          // Show a skeleton on the client while we wait for the response.
+          yield (
+            <BotCard>
+              <StocksSkeleton />
+            </BotCard>
+          )
+
+          await sleep(1000)
+
+          // Update the final AIState.
+          aiState.done({
+            ...aiState.get(),
+            messages: [
+              ...aiState.get().messages,
+              {
+                id: nanoid(),
+                role: 'function',
+                name: 'fullStocks',
+                content: JSON.stringify(fullRecipes)
+              }
+            ]
+          })
+
+          // return the actual component for the UIState
+          return (
+            <BotCard>
+              <FullRecipes {...fullRecipes} />
+            </BotCard>
+          )
+        }
+      },
+/*       showStockPrice: {
         description:
           'Get the current stock price of a given stock or currency. Use this to show the price to the user.',
         parameters: z.object({
@@ -381,13 +442,13 @@ Besides that, you can also chat with users and do some calculations if needed.`
             </BotCard>
           )
         }
-      }
+      } */
     }
   })
 
   return {
     id: nanoid(),
-    display: ui
+    display: streamableUi
   }
 }
 
@@ -408,11 +469,14 @@ export type UIState = {
   display: React.ReactNode
 }[]
 
+// AI is a provider you wrap your application with so you can access AI and UI state in your components.
 export const AI = createAI<AIState, UIState>({
   actions: {
     submitUserMessage,
     confirmPurchase
   },
+  // Each state can be any shape of object, but for chat applications
+  // it makes sense to have an array of messages. Or you may prefer something like { id: number, messages: Message[] }
   initialUIState: [],
   initialAIState: { chatId: nanoid(), messages: [] },
   unstable_onGetUIState: async () => {

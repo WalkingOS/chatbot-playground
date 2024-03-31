@@ -10,8 +10,10 @@ export default async function IndexPage() {
   const id = nanoid()
 
   return (
-    <AI initialAIState={{ chatId: id, messages: [] }}>
-      <Chat id={id} />
-    </AI>
+    <>
+      <AI initialAIState={{ chatId: id, messages: [] }}>
+        <Chat id={id} />
+      </AI>
+    </>
   )
 }
